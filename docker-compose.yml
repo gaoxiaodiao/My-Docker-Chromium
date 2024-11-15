@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  chromium:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chromium
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+      - NOTIFY_TELEGRAM_TOKEN=${NOTIFY_TELEGRAM_TOKEN}
+      - NOTIFY_TELEGRAM_CHAT_ID=${NOTIFY_TELEGRAM_CHAT_ID}
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./config:/config
+      - ./plugins:/app/plugins
+    shm_size: "1gb"
+    restart: unless-stopped
