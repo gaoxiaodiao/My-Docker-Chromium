@@ -49,26 +49,60 @@ async function sleep(ms) {
 }
 
 async function checkChromeIsReady(browserURL) {
-    const response = await axios.get(browserURL);
-    return response.status === 200;
+    try {
+        const response = await axios.get(browserURL);
+        return response.status === 200;
+    } catch (err) {
+        console.error(`can't connect to ${browserURL}`)
+    }
 }
 
 async function waitChromeReady(browserURL) {
     let count = 0;
     let chromiumProcess = null;
-    const timer = setInterval(async () => {
-        if (await checkChromeIsReady(browserURL)) { clearInterval(timer); return; }
-        if (count > 10) {
-            const pkill = spawn("/usr/bin/pkill", ["-9", "chromium"]);
-            pkill.on('close', () => {
-                chromiumProcess = spawn('/usr/bin/chromium', ["--no-sandbox", "--remote-debugging-port=3003"], { stdio: 'pipe' });
+
+    const tryCheckChrome = async () => {
+        if (await checkChromeIsReady(browserURL)) {
+            console.log('Chromium is ready.');
+            return chromiumProcess;
+        }
+
+        if (count > 5) {
+            console.log('Attempting to kill existing Chromium processes...');
+            const pkill = spawn('sudo', ['/usr/bin/pkill', '-9', 'chromium']);
+            await new Promise(resolve => pkill.on('close', resolve));
+
+            const rm = spawn("sudo", ["/usr/bin/rm","-f", "/tmp/profile/SingletonCookie", "/tmp/profile/SingletonLock", "/tmp/profile/SingletonSocket"]);
+            rm.on('error', (err) => {
+                console.error('Failed to start rm:', err);
             });
-            count = -10;
+            rm.on('exit', (code, signal) => {
+                console.log(`rm process exited with code: ${code}, signal: ${signal}`);
+            });
+            await new Promise(resolve => rm.on('close', resolve));
+
+            console.log('Starting a new Chromium instance...');
+            chromiumProcess = spawn('/usr/bin/chromium', ["--no-sandbox", "--remote-debugging-port=3003", "--user-data-dir=/tmp/profile"], { stdio: 'pipe' });
+            chromiumProcess.on('error', (err) => {
+                console.error('Failed to start Chromium:', err);
+            });
+            chromiumProcess.on('close', (code, signal) => {
+                console.log(`Chromium process closed with code: ${code}, signal: ${signal}`);
+            });
+            chromiumProcess.on('exit', (code, signal) => {
+                console.log(`Chromium process exited with code: ${code}, signal: ${signal}`);
+            });
+            // Reset count to allow time for the new Chromium instance to start
+            count = 0;
         }
         count++;
-    }, 1000);
-    return chromiumProcess;
+        await sleep(1000); // Wait 1 second before the next check
+        return tryCheckChrome(); // Recursive call
+    };
+
+    return tryCheckChrome();
 }
+
 (async () => {
     const argv = yargs
         .option('local', {
@@ -108,6 +142,7 @@ async function waitChromeReady(browserURL) {
     try {
         const browserURL = 'http://127.0.0.1:3003';
         await waitChromeReady(browserURL);
+        console.log("chromium is ready!");
         const browser = await puppeteer.connect({ browserURL });
         browser.on('targetcreated', async (target) => {
             if (target.type() === 'page') {

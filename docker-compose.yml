@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   chromium:
     build:
@@ -15,7 +13,7 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ./config:/config
       - ./plugins:/app/plugins
+      - ./profile:/tmp/profile
     shm_size: "1gb"
     restart: unless-stopped
