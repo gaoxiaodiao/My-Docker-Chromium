@@ -1,7 +1,19 @@
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-extra')
 const axios = require('axios');
 const { spawn } = require('child_process');
 const yargs = require('yargs');
+let pluginHook = null;
+try {
+    pluginHook = require('../plugins/hook.js');
+} catch (error) {
+    console.error('Error loading pluginHook:', error);
+}
+
+async function changeFingerprint(page) {
+    if (pluginHook) {
+        await pluginHook.changeFingerprint(page);
+    }
+}
 
 async function loadLocalScript(page, scriptPath) {
     const fs = require('fs');
@@ -72,7 +84,7 @@ async function waitChromeReady(browserURL) {
             const pkill = spawn('sudo', ['/usr/bin/pkill', '-9', 'chromium']);
             await new Promise(resolve => pkill.on('close', resolve));
 
-            const rm = spawn("sudo", ["/usr/bin/rm","-f", "/tmp/profile/SingletonCookie", "/tmp/profile/SingletonLock", "/tmp/profile/SingletonSocket"]);
+            const rm = spawn("sudo", ["/usr/bin/rm", "-f", "/tmp/profile/SingletonCookie", "/tmp/profile/SingletonLock", "/tmp/profile/SingletonSocket"]);
             rm.on('error', (err) => {
                 console.error('Failed to start rm:', err);
             });
@@ -82,7 +94,7 @@ async function waitChromeReady(browserURL) {
             await new Promise(resolve => rm.on('close', resolve));
 
             console.log('Starting a new Chromium instance...');
-            chromiumProcess = spawn('/usr/bin/chromium', ["--no-sandbox", "--remote-debugging-port=3003", "--user-data-dir=/tmp/profile"], { stdio: 'pipe' });
+            chromiumProcess = spawn('/usr/bin/wrapped-chromium', ["--no-sandbox", "--remote-debugging-port=3003", "--user-data-dir=/tmp/profile"], { stdio: 'pipe' });
             chromiumProcess.on('error', (err) => {
                 console.error('Failed to start Chromium:', err);
             });
@@ -138,6 +150,7 @@ async function waitChromeReady(browserURL) {
         })
         .help()
         .argv;
+    const customUA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
     try {
         const browserURL = 'http://127.0.0.1:3003';
@@ -148,9 +161,17 @@ async function waitChromeReady(browserURL) {
             if (target.type() === 'page') {
                 const page = await target.page();
                 await page.setViewport(null);
+                await page.setUserAgent(customUA);
+                await changeFingerprint(page);
+                console.log(`Set User-Agent: ${customUA}`);
             }
         });
         const page = await browser.newPage();
+        await page.evaluateOnNewDocument(() => {
+            localStorage.clear();
+            sessionStorage.clear();
+        });
+        await changeFingerprint(page);
         if (argv['start-url']) {
             console.log(`Navigating to ${argv['start-url']}`);
             await page.goto(argv['start-url'], { waitUntil: 'networkidle2' });
